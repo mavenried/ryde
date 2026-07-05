@@ -27,6 +27,9 @@ interface RouteDao {
     @Query("UPDATE routes SET category = :category WHERE id = :id")
     suspend fun updateCategory(id: String, category: String)
 
+    @Query("UPDATE routes SET elevationGainM = :elevationGainM, calories = :calories, elevationCorrected = 1 WHERE id = :id")
+    suspend fun applyElevationCorrection(id: String, elevationGainM: Double, calories: Double)
+
     @Delete
     suspend fun delete(route: RouteEntity)
 

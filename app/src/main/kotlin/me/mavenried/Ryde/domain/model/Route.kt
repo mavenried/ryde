@@ -12,5 +12,6 @@ data class Route(
     val elevationGainM: Double,
     val calories: Double = 0.0,
     val category: String = "Other",
-    val completed: Boolean = true
+    val completed: Boolean = true,
+    val elevationCorrected: Boolean = false
 )

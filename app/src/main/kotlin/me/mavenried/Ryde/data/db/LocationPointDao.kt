@@ -10,4 +10,7 @@ interface LocationPointDao {
 
     @Query("SELECT * FROM location_points WHERE routeId = :routeId ORDER BY timestamp ASC")
     suspend fun getPointsForRoute(routeId: String): List<LocationPointEntity>
+
+    @Update
+    suspend fun updateAll(points: List<LocationPointEntity>)
 }

@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 object UserPrefs {
     private const val PREFS_NAME = "user_prefs"
     private const val KEY_WEIGHT_KG = "weight_kg"
+    private const val KEY_BIKE_WEIGHT_KG = "bike_weight_kg"
     private const val KEY_USE_LBS = "use_lbs"
     private const val KEY_ONBOARDED = "onboarded"
     private const val KEY_THEME = "theme"
@@ -60,6 +61,14 @@ object UserPrefs {
     fun setWeightKg(context: Context, kg: Double) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putFloat(KEY_WEIGHT_KG, kg.toFloat()).apply()
+
+    fun getBikeWeightKg(context: Context): Double =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getFloat(KEY_BIKE_WEIGHT_KG, 10f).toDouble()
+
+    fun setBikeWeightKg(context: Context, kg: Double) =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putFloat(KEY_BIKE_WEIGHT_KG, kg.toFloat()).apply()
 
     fun useLbs(context: Context): Boolean =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

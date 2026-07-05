@@ -85,6 +85,7 @@ class TrackingService : LifecycleService() {
     private var lastSpeedMs = 0f
     private val pointBuffer = mutableListOf<LocationPoint>()
     private val pendingDbPoints = mutableListOf<LocationPoint>()
+    private var runningCalories = 0.0
     private var currentRouteId = ""
     private var timerJob: Job? = null
 
@@ -155,6 +156,7 @@ class TrackingService : LifecycleService() {
         lastSpeedMs = 0f
         pointBuffer.clear()
         pendingDbPoints.clear()
+        runningCalories = 0.0
         this.goalDistanceKm = goalDistanceKm
         this.goalDurationMs = goalDurationMs
         goalReached = false
@@ -210,11 +212,15 @@ class TrackingService : LifecycleService() {
         lastAnnouncedKm = 0
         pointBuffer.clear()
         pendingDbPoints.clear()
+        runningCalories = 0.0
         lifecycleScope.launch {
             try {
                 val existing = repository.getPointsForRoute(routeId)
                 pointBuffer.addAll(existing)
                 lastAnnouncedKm = TrackStats.totalDistanceKm(existing).toInt()
+                runningCalories = TrackStats.estimatedCaloriesKcal(
+                    existing, activityType, UserPrefs.getWeightKg(this@TrackingService), UserPrefs.getBikeWeightKg(this@TrackingService)
+                )
                 FileLogger.log(this@TrackingService, "Loaded ${existing.size} existing points for crash resume")
             } catch (e: Exception) {
                 FileLogger.logError(this@TrackingService, "Failed to load existing points on resume", e)
@@ -272,7 +278,7 @@ class TrackingService : LifecycleService() {
             TrackStats.avgPaceMinPerKm(distanceKm, durationMs) else 0.0
         val avgSpeed = if (currentActivityType == ActivityType.CYCLING)
             TrackStats.avgSpeedKmh(distanceKm, durationMs) else 0.0
-        val calories = TrackStats.estimatedCaloriesKcal(currentActivityType, distanceKm, UserPrefs.getWeightKg(this))
+        val calories = runningCalories
 
         lifecycleScope.launch {
             val locationName = if (pointBuffer.isNotEmpty()) {
@@ -306,6 +312,7 @@ class TrackingService : LifecycleService() {
             repository.saveRoute(route)
             repository.savePoints(routeId, allPoints)
             RydeWidget().updateAll(this@TrackingService)
+            DemCorrectionWorker.enqueue(this@TrackingService, routeId)
         }
 
         setState(TrackingState.Idle)
@@ -395,8 +402,15 @@ class TrackingService : LifecycleService() {
             }
 
             if (!isAutoPaused) {
+                val prevPoint = pointBuffer.lastOrNull()
                 pointBuffer.add(point)
                 pendingDbPoints.add(point)
+                if (prevPoint != null) {
+                    runningCalories += TrackStats.segmentCaloriesKcal(
+                        prevPoint, point, currentActivityType,
+                        UserPrefs.getWeightKg(this), UserPrefs.getBikeWeightKg(this)
+                    )
+                }
                 if (pendingDbPoints.size >= 10) flushPendingPoints()
 
                 val totalKm = TrackStats.totalDistanceKm(pointBuffer)
@@ -504,7 +518,7 @@ class TrackingService : LifecycleService() {
             currentPace = if (currentActivityType != ActivityType.CYCLING && lastSpeedMs > 0.1f)
                 1000.0 / (lastSpeedMs * 60.0) else 0.0,
             currentSpeed = if (currentActivityType == ActivityType.CYCLING) liveSpeedKmh else 0.0,
-            calories = TrackStats.estimatedCaloriesKcal(currentActivityType, dist, UserPrefs.getWeightKg(this@TrackingService)),
+            calories = runningCalories,
             points = pointBuffer.toList(),
             isPaused = isPaused || isAutoPaused,
             isAutoPaused = isAutoPaused,

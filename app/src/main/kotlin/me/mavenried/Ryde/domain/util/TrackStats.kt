@@ -17,13 +17,24 @@ object TrackStats {
     // GPS altitude jitter on consumer devices is typically ±5–15 m.
     // A gate below ~8 m accumulates significant false gain on flat ground.
     private const val ELEVATION_NOISE_GATE_M = 8.0
+    // DEM-corrected altitude is far less noisy than raw GPS, so a much smaller gate suffices.
+    private const val ELEVATION_NOISE_GATE_DEM_M = 1.5
 
-    // Distance-based energy cost (kcal/kg/km) — won't accumulate while stationary
-    // Sources: Margaria 1963 (running), Givoni & Goldman 1971 (walking), Whitt & Wilson 1982 (cycling)
     private const val DEFAULT_WEIGHT_KG = 70.0
-    private const val KCAL_PER_KG_KM_RUNNING = 1.04
-    private const val KCAL_PER_KG_KM_WALKING = 0.80
-    private const val KCAL_PER_KG_KM_CYCLING = 0.35
+
+    // Physics-based cycling power model (rolling resistance + gravity + aerodynamic drag),
+    // converted to metabolic cost via gross efficiency. See estimatedCaloriesKcal.
+    private const val GRAVITY_MS2 = 9.80665
+    private const val ROLLING_RESISTANCE_COEFF = 0.005 // road tires on pavement
+    private const val AIR_DENSITY_KG_M3 = 1.225 // sea level
+    private const val CYCLING_DRAG_AREA_M2 = 0.4 // CdA, upright road cycling posture
+    private const val CYCLING_GROSS_EFFICIENCY = 0.24 // fraction of metabolic energy -> mechanical work
+    private const val JOULES_PER_KCAL = 4184.0
+
+    private const val MAX_PLAUSIBLE_SEGMENT_SPEED_MS = 30.0 // ~108 km/h; beyond this, treat as a GPS jump
+    private const val MIN_SEGMENT_DIST_M = 1.0
+    private const val MAX_SEGMENT_GAP_SEC = 30.0 // matches the auto-pause gap threshold elsewhere
+    private const val MAX_GRADE = 0.25
 
     fun filterPoints(points: List<LocationPoint>): List<LocationPoint> =
         points.filter { it.accuracy <= ACCURACY_THRESHOLD_M }
@@ -34,11 +45,12 @@ object TrackStats {
         return filtered.zipWithNext().sumOf { (a, b) -> haversineKm(a.lat, a.lng, b.lat, b.lng) }
     }
 
-    fun elevationGainM(points: List<LocationPoint>): Double {
+    fun elevationGainM(points: List<LocationPoint>, demCorrected: Boolean = false): Double {
         val filtered = filterPoints(points)
         if (filtered.size < 2) return 0.0
+        val gate = if (demCorrected) ELEVATION_NOISE_GATE_DEM_M else ELEVATION_NOISE_GATE_M
         return filtered.zipWithNext()
-            .sumOf { (a, b) -> max(0.0, b.altitude - a.altitude - ELEVATION_NOISE_GATE_M) }
+            .sumOf { (a, b) -> max(0.0, b.altitude - a.altitude - gate) }
     }
 
     fun avgPaceMinPerKm(distanceKm: Double, durationMs: Long): Double {
@@ -67,17 +79,72 @@ object TrackStats {
     fun stoppedTimeSec(totalDurationMs: Long, points: List<LocationPoint>): Long =
         ((totalDurationMs / 1000L) - movingTimeSec(points)).coerceAtLeast(0L)
 
+    /**
+     * Per-segment energy estimate using real speed and grade between consecutive points,
+     * rather than a flat kcal/kg/km rate.
+     *
+     * Cycling: physics-based power model (rolling resistance + gravity + aerodynamic drag)
+     * over combined rider+bike mass, converted to metabolic cost via gross efficiency —
+     * the ~0.24 efficiency constant conveniently makes kcal ≈ kJ of mechanical work, the
+     * standard cycling-computer rule of thumb.
+     *
+     * Running/walking: ACSM grade-adjusted VO2 equations (rider weight only).
+     */
     fun estimatedCaloriesKcal(
+        points: List<LocationPoint>,
         activityType: ActivityType,
-        distanceKm: Double,
-        weightKg: Double = DEFAULT_WEIGHT_KG
+        riderWeightKg: Double = DEFAULT_WEIGHT_KG,
+        bikeWeightKg: Double = 0.0
     ): Double {
-        val rate = when (activityType) {
-            ActivityType.RUNNING -> KCAL_PER_KG_KM_RUNNING
-            ActivityType.WALKING -> KCAL_PER_KG_KM_WALKING
-            ActivityType.CYCLING -> KCAL_PER_KG_KM_CYCLING
+        val filtered = filterPoints(points)
+        if (filtered.size < 2) return 0.0
+        return filtered.zipWithNext()
+            .sumOf { (a, b) -> segmentCaloriesKcal(a, b, activityType, riderWeightKg, bikeWeightKg) }
+    }
+
+    /**
+     * Energy cost of a single a->b segment. Exposed separately so a live tracking session
+     * can accumulate calories incrementally per new point instead of re-summing the whole
+     * ride on every update.
+     */
+    fun segmentCaloriesKcal(
+        a: LocationPoint,
+        b: LocationPoint,
+        activityType: ActivityType,
+        riderWeightKg: Double = DEFAULT_WEIGHT_KG,
+        bikeWeightKg: Double = 0.0
+    ): Double {
+        val dtSec = (b.timestamp - a.timestamp) / 1000.0
+        if (dtSec <= 0.0 || dtSec > MAX_SEGMENT_GAP_SEC) return 0.0
+
+        val distM = haversineKm(a.lat, a.lng, b.lat, b.lng) * 1000.0
+        if (distM < MIN_SEGMENT_DIST_M) return 0.0
+
+        val speedMs = distM / dtSec
+        if (speedMs > MAX_PLAUSIBLE_SEGMENT_SPEED_MS) return 0.0
+
+        val grade = ((b.altitude - a.altitude) / distM).coerceIn(-MAX_GRADE, MAX_GRADE)
+
+        return when (activityType) {
+            ActivityType.CYCLING -> {
+                val mass = riderWeightKg + bikeWeightKg
+                val pRolling = ROLLING_RESISTANCE_COEFF * mass * GRAVITY_MS2 * speedMs
+                val pGravity = mass * GRAVITY_MS2 * speedMs * grade
+                val pAero = 0.5 * AIR_DENSITY_KG_M3 * CYCLING_DRAG_AREA_M2 * speedMs.pow(3)
+                val pTotal = max(0.0, pRolling + pGravity + pAero)
+                (pTotal * dtSec) / CYCLING_GROSS_EFFICIENCY / JOULES_PER_KCAL
+            }
+            ActivityType.RUNNING, ActivityType.WALKING -> {
+                val speedMPerMin = speedMs * 60.0
+                val vo2 = if (activityType == ActivityType.RUNNING) {
+                    0.2 * speedMPerMin + 0.9 * speedMPerMin * grade + 3.5
+                } else {
+                    0.1 * speedMPerMin + 1.8 * speedMPerMin * grade + 3.5
+                }.coerceAtLeast(3.5)
+                val kcalPerMin = vo2 * riderWeightKg * 5.0 / 1000.0
+                kcalPerMin * (dtSec / 60.0)
+            }
         }
-        return rate * weightKg * distanceKm
     }
 
     /**

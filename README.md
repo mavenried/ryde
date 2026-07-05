@@ -8,7 +8,8 @@ Download the latest APK from the [Releases](https://github.com/mavenried/ryde/re
 
 ## Features
 
-- **Live tracking** — real-time GPS speed/pace, distance, elapsed time, and calorie estimate
+- **Live tracking** — real-time GPS speed/pace, distance, elapsed time, and calorie estimate (physics-based: rider + bike weight, speed, and grade)
+- **Fullscreen ride view** — drag the nub up on the ride panel for a big-font, map-free stats display; drag down to return to the map
 - **Three activity types** — cycling (speed), running & walking (pace)
 - **Google Maps** — live route drawn on a map with dark mode support
 - **Auto-pause** — pauses automatically when you stop moving, resumes when you start again
@@ -20,7 +21,7 @@ Download the latest APK from the [Releases](https://github.com/mavenried/ryde/re
 - **Personal records** — longest ride, fastest speed, best pace, and more, with route links
 - **Stats charts** — weekly and monthly breakdowns of distance, duration, and calories
 - **History** — scrollable list of past routes with stats and a speed-coloured route replay
-- **Elevation profile** — chart of altitude over distance with noise filtering
+- **Elevation profile** — chart of altitude over distance, corrected against DEM data after each ride for accurate gain/loss
 - **GPX export** — share any saved route as a standard `.gpx` file
 - **Music controls** — playback and volume controls sourced from the notification listener
 - **Home screen widget** — glanceable live stats while riding
@@ -72,12 +73,12 @@ Every push to `master` triggers a GitHub Actions workflow that builds a signed r
 app/src/main/kotlin/me/mavenried/Ryde/
 ├── data/           Room entities, DAOs, AppDatabase
 ├── domain/         Clean models, RouteRepository, TrackStats
-├── service/        TrackingService (foreground), MediaListenerService, WeeklySummaryWorker
+├── service/        TrackingService (foreground), MediaListenerService, WeeklySummaryWorker, DemCorrectionWorker
 ├── ui/
 │   ├── components/ Reusable composables (map views, panels, charts, UpdateDialog)
 │   ├── screens/    Home, History, RouteDetail, Settings, Heatmap, Stats, PersonalRecords
 │   ├── viewmodel/  TrackingViewModel, HistoryViewModel, RouteDetailViewModel, and more
 │   └── theme/      Material 3 colour scheme and typography
-├── util/           GpxExporter, ReverseGeocoder, UserPrefs, UpdateChecker, UpdateInstaller
+├── util/           GpxExporter, ReverseGeocoder, ElevationClient, UserPrefs, UpdateChecker, UpdateInstaller
 └── widget/         RydeWidget (Glance)
 ```

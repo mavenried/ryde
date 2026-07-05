@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.provider.Settings
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,9 +20,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,38 +45,103 @@ fun ActiveBottomPanel(
     onStop: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var isExpanded by remember { mutableStateOf(false) }
+    var dragAccumPx by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
+    val dragThresholdPx = with(density) { 48.dp.toPx() }
+
+    // Stats shared by the collapsed grid and the fullscreen expanded view
+    val hours = state.elapsedMs / 3_600_000
+    val minutes = (state.elapsedMs % 3_600_000) / 60_000
+    val seconds = (state.elapsedMs % 60_000) / 1000
+    val timeStr = if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds)
+                  else "%02d:%02d".format(minutes, seconds)
+    val isMetric = LocalIsMetric.current
+    val movementValue = if (state.activityType == ActivityType.CYCLING)
+        UserPrefs.formatSpeed(state.currentSpeed, isMetric)
+    else {
+        val pace = state.currentPace
+        if (pace > 0) UserPrefs.formatPace(pace, isMetric) else "--:--"
+    }
+    val movementLabel = if (state.activityType == ActivityType.CYCLING) "SPEED" else "PACE"
+
     Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        modifier = if (isExpanded) modifier.fillMaxSize() else modifier.fillMaxWidth(),
+        shape = if (isExpanded) RectangleShape else RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shadowElevation = 8.dp
     ) {
-        Column(modifier = Modifier.navigationBarsPadding()) {
+        Column(
+            modifier = Modifier
+                .navigationBarsPadding()
+                .let { if (isExpanded) it.fillMaxSize() else it }
+        ) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(top = 10.dp, bottom = 4.dp)
-                    .size(width = 36.dp, height = 4.dp)
-                    .background(
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                        CircleShape
-                    )
-            )
-
-            // Stats 2×2 grid
-            val hours = state.elapsedMs / 3_600_000
-            val minutes = (state.elapsedMs % 3_600_000) / 60_000
-            val seconds = (state.elapsedMs % 60_000) / 1000
-            val timeStr = if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds)
-                          else "%02d:%02d".format(minutes, seconds)
-            val isMetric = LocalIsMetric.current
-            val movementValue = if (state.activityType == ActivityType.CYCLING)
-                UserPrefs.formatSpeed(state.currentSpeed, isMetric)
-            else {
-                val pace = state.currentPace
-                if (pace > 0) UserPrefs.formatPace(pace, isMetric) else "--:--"
+                    .fillMaxWidth()
+                    .pointerInput(isExpanded) {
+                        detectVerticalDragGestures(
+                            onDragStart = { dragAccumPx = 0f },
+                            onVerticalDrag = { change, dragAmount ->
+                                change.consume()
+                                dragAccumPx += dragAmount
+                                if (!isExpanded && dragAccumPx < -dragThresholdPx) {
+                                    isExpanded = true
+                                } else if (isExpanded && dragAccumPx > dragThresholdPx) {
+                                    isExpanded = false
+                                }
+                            }
+                        )
+                    }
+                    .padding(top = 10.dp, bottom = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 4.dp)
+                        .background(
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                            CircleShape
+                        )
+                )
             }
-            val movementLabel = if (state.activityType == ActivityType.CYCLING) "SPEED" else "PACE"
+
+            if (isExpanded) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                    verticalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BigStatCell(label = "TIME", value = timeStr, modifier = Modifier.weight(1f))
+                        BigStatCell(
+                            label = "DIST",
+                            value = UserPrefs.formatDistance(state.distanceKm, isMetric),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BigStatCell(label = movementLabel, value = movementValue, modifier = Modifier.weight(1f))
+                        BigStatCell(
+                            label = "CALS",
+                            value = "%.0f kcal".format(state.calories),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                ActionButtonsRow(state = state, onPauseResume = onPauseResume, onStop = onStop)
+                return@Column
+            }
 
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
@@ -233,44 +302,52 @@ fun ActiveBottomPanel(
                 }
             }
 
-            // Action buttons
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onPauseResume,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(vertical = 14.dp)
-                ) {
-                    Icon(
-                        if (state.isPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (state.isPaused) "Resume" else "Pause")
-                }
-                Button(
-                    onClick = onStop,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(vertical = 14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                ) {
-                    Icon(
-                        Icons.Rounded.Stop,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("End Ride")
-                }
-            }
+            ActionButtonsRow(state = state, onPauseResume = onPauseResume, onStop = onStop)
+        }
+    }
+}
+
+@Composable
+private fun ActionButtonsRow(
+    state: TrackingState.Active,
+    onPauseResume: () -> Unit,
+    onStop: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        OutlinedButton(
+            onClick = onPauseResume,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(vertical = 14.dp)
+        ) {
+            Icon(
+                if (state.isPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(if (state.isPaused) "Resume" else "Pause")
+        }
+        Button(
+            onClick = onStop,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(vertical = 14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            )
+        ) {
+            Icon(
+                Icons.Rounded.Stop,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("End Ride")
         }
     }
 }
@@ -488,6 +565,25 @@ private fun StatCell(label: String, value: String, modifier: Modifier = Modifier
             text = value,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun BigStatCell(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            fontWeight = FontWeight.Medium,
+            letterSpacing = androidx.compose.ui.unit.TextUnit(1.5f, androidx.compose.ui.unit.TextUnitType.Sp)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.displaySmall,
+            fontWeight = FontWeight.Bold
         )
     }
 }

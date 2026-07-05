@@ -48,6 +48,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
     val context = LocalContext.current
     val useLbs = remember { mutableStateOf(UserPrefs.useLbs(context)) }
     val weightKg = remember { mutableStateOf(UserPrefs.getWeightKg(context)) }
+    val bikeWeightKg = remember { mutableStateOf(UserPrefs.getBikeWeightKg(context)) }
     var theme by remember { mutableStateOf(UserPrefs.getTheme(context)) }
     var isMetric by remember { mutableStateOf(UserPrefs.isMetric(context)) }
     var keepScreenOn by remember { mutableStateOf(UserPrefs.isKeepScreenOn(context)) }
@@ -107,6 +108,13 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
     }
     var inputText by remember(displayValue) { mutableStateOf(displayValue) }
     var isError by remember { mutableStateOf(false) }
+
+    val bikeDisplayValue = remember(useLbs.value, bikeWeightKg.value) {
+        if (useLbs.value) "%.1f".format(UserPrefs.kgToLbs(bikeWeightKg.value))
+        else "%.1f".format(bikeWeightKg.value)
+    }
+    var bikeInputText by remember(bikeDisplayValue) { mutableStateOf(bikeDisplayValue) }
+    var isBikeError by remember { mutableStateOf(false) }
 
     if (showLogsDialog) {
         LogsDialog(onDismiss = { showLogsDialog = false })
@@ -172,6 +180,14 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
         val kg = if (useLbs.value) UserPrefs.lbsToKg(parsed) else parsed
         weightKg.value = kg
         UserPrefs.setWeightKg(context, kg)
+
+        val bikeParsed = bikeInputText.toDoubleOrNull()
+        if (bikeParsed == null || bikeParsed <= 0) { isBikeError = true; return }
+        isBikeError = false
+        val bikeKg = if (useLbs.value) UserPrefs.lbsToKg(bikeParsed) else bikeParsed
+        bikeWeightKg.value = bikeKg
+        UserPrefs.setBikeWeightKg(context, bikeKg)
+
         UserPrefs.setUseLbs(context, useLbs.value)
     }
 
@@ -226,11 +242,34 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                                 "%.1f".format(UserPrefs.kgToLbs(weightKg.value))
                             else
                                 "%.1f".format(weightKg.value)
+                            bikeInputText = if (newUseLbs)
+                                "%.1f".format(UserPrefs.kgToLbs(bikeWeightKg.value))
+                            else
+                                "%.1f".format(bikeWeightKg.value)
                         }
                     )
                 }
                 Text(
                     "Used to estimate calorie burn during activities.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Bike weight", style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(
+                    value = bikeInputText,
+                    onValueChange = { bikeInputText = it; isBikeError = false },
+                    modifier = Modifier.fillMaxWidth(0.5f),
+                    label = { Text(if (useLbs.value) "lbs" else "kg") },
+                    isError = isBikeError,
+                    supportingText = if (isBikeError) {{ Text("Enter a valid weight") }} else null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
+                Text(
+                    "Combined with body weight for more accurate cycling calorie estimates.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
                 )
