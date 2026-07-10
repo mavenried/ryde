@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.provider.Settings
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -20,15 +23,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import me.mavenried.Ryde.domain.model.ActivityType
 import me.mavenried.Ryde.domain.model.StepType
@@ -64,10 +68,14 @@ fun ActiveBottomPanel(
         if (pace > 0) UserPrefs.formatPace(pace, isMetric) else "--:--"
     }
     val movementLabel = if (state.activityType == ActivityType.CYCLING) "SPEED" else "PACE"
+    val cornerRadius by animateDpAsState(if (isExpanded) 0.dp else 24.dp, label = "panelCornerRadius")
 
     Surface(
-        modifier = if (isExpanded) modifier.fillMaxSize() else modifier.fillMaxWidth(),
-        shape = if (isExpanded) RectangleShape else RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize()
+            .then(if (isExpanded) Modifier.fillMaxHeight() else Modifier),
+        shape = RoundedCornerShape(topStart = cornerRadius, topEnd = cornerRadius),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shadowElevation = 8.dp
     ) {
@@ -79,7 +87,7 @@ fun ActiveBottomPanel(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .pointerInput(isExpanded) {
+                    .pointerInput(Unit) {
                         detectVerticalDragGestures(
                             onDragStart = { dragAccumPx = 0f },
                             onVerticalDrag = { change, dragAmount ->
@@ -106,83 +114,110 @@ fun ActiveBottomPanel(
                 )
             }
 
-            if (isExpanded) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
-                    verticalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    Row(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        BigStatCell(label = "TIME", value = timeStr, modifier = Modifier.weight(1f))
-                        BigStatCell(
-                            label = "DIST",
-                            value = UserPrefs.formatDistance(state.distanceKm, isMetric),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        BigStatCell(label = movementLabel, value = movementValue, modifier = Modifier.weight(1f))
-                        BigStatCell(
-                            label = "CALS",
-                            value = "%.0f kcal".format(state.calories),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
+            Crossfade(targetState = isExpanded, label = "panelContent") { expanded ->
+                if (expanded) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp),
+                            verticalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                BigStatCell(label = "TIME", value = timeStr, modifier = Modifier.weight(1f))
+                                BigStatCell(
+                                    label = "DIST",
+                                    value = UserPrefs.formatDistance(state.distanceKm, isMetric),
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                BigStatCell(label = movementLabel, value = movementValue, modifier = Modifier.weight(1f))
+                                BigStatCell(
+                                    label = "CALS",
+                                    value = "%.0f kcal".format(state.calories),
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
 
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                ActionButtonsRow(state = state, onPauseResume = onPauseResume, onStop = onStop)
-                return@Column
-            }
-
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(top = 14.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    StatCell(label = "TIME", value = timeStr, modifier = Modifier.weight(1f))
-                    StatDivider()
-                    StatCell(label = "DIST", value = UserPrefs.formatDistance(state.distanceKm, isMetric), modifier = Modifier.weight(1f))
-                }
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(top = 8.dp, bottom = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    StatCell(label = movementLabel, value = movementValue, modifier = Modifier.weight(1f))
-                    StatDivider()
-                    StatCell(
-                        label = "CALS",
-                        value = "%.0f kcal".format(state.calories),
-                        modifier = Modifier.weight(1f)
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        ActionButtonsRow(state = state, onPauseResume = onPauseResume, onStop = onStop)
+                    }
+                } else {
+                    CollapsedPanelContent(
+                        state = state,
+                        timeStr = timeStr,
+                        isMetric = isMetric,
+                        movementValue = movementValue,
+                        movementLabel = movementLabel,
+                        onPauseResume = onPauseResume,
+                        onStop = onStop
                     )
                 }
             }
+        }
+    }
+}
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+@Composable
+private fun CollapsedPanelContent(
+    state: TrackingState.Active,
+    timeStr: String,
+    isMetric: Boolean,
+    movementValue: String,
+    movementLabel: String,
+    onPauseResume: () -> Unit,
+    onStop: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 14.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StatCell(label = "TIME", value = timeStr, modifier = Modifier.weight(1f))
+                StatDivider()
+                StatCell(label = "DIST", value = UserPrefs.formatDistance(state.distanceKm, isMetric), modifier = Modifier.weight(1f))
+            }
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 8.dp, bottom = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StatCell(label = movementLabel, value = movementValue, modifier = Modifier.weight(1f))
+                StatDivider()
+                StatCell(
+                    label = "CALS",
+                    value = "%.0f kcal".format(state.calories),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
 
-            MusicRow()
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        MusicRow()
 
-            // Goal progress bar
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        // Goal progress bar
             val goalDist = state.goalDistanceKm
             val goalDur = state.goalDurationMs
             if (goalDist != null || goalDur != null) {
@@ -305,7 +340,6 @@ fun ActiveBottomPanel(
             ActionButtonsRow(state = state, onPauseResume = onPauseResume, onStop = onStop)
         }
     }
-}
 
 @Composable
 private fun ActionButtonsRow(
@@ -569,21 +603,40 @@ private fun StatCell(label: String, value: String, modifier: Modifier = Modifier
     }
 }
 
+private val BIG_STAT_MAX_FONT_SIZE = 80.sp
+private val BIG_STAT_MIN_FONT_SIZE = 28.sp
+
 @Composable
 private fun BigStatCell(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = modifier.fillMaxHeight(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
             fontWeight = FontWeight.Medium,
             letterSpacing = androidx.compose.ui.unit.TextUnit(1.5f, androidx.compose.ui.unit.TextUnitType.Sp)
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        // Shrink-to-fit: start big and step down until it fits on one line,
+        // re-attempting only when the character count changes (avoids flicker on every tick).
+        var fontSize by remember(value.length) { mutableStateOf(BIG_STAT_MAX_FONT_SIZE) }
         Text(
             text = value,
-            style = MaterialTheme.typography.displaySmall,
-            fontWeight = FontWeight.Bold
+            fontSize = fontSize,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+            onTextLayout = { result ->
+                if (result.didOverflowWidth && fontSize > BIG_STAT_MIN_FONT_SIZE) {
+                    fontSize = (fontSize.value - 4).coerceAtLeast(BIG_STAT_MIN_FONT_SIZE.value).sp
+                }
+            }
         )
     }
 }
