@@ -74,6 +74,7 @@ class TrackingService : LifecycleService() {
     companion object {
         private val _globalState = MutableStateFlow<TrackingState>(TrackingState.Idle)
         val globalState: StateFlow<TrackingState> = _globalState.asStateFlow()
+        private const val GPS_STALE_MS = 4_000L
     }
 
     private var startTimeMs = 0L
@@ -83,6 +84,7 @@ class TrackingService : LifecycleService() {
     private var isAutoPaused = false
     private var currentActivityType = ActivityType.RUNNING
     private var lastSpeedMs = 0f
+    private var lastFixAtMs = 0L
     private val pointBuffer = mutableListOf<LocationPoint>()
     private val pendingDbPoints = mutableListOf<LocationPoint>()
     private var runningCalories = 0.0
@@ -154,6 +156,7 @@ class TrackingService : LifecycleService() {
         pausedAtMs = 0L
         isPaused = false
         lastSpeedMs = 0f
+        lastFixAtMs = 0L
         pointBuffer.clear()
         pendingDbPoints.clear()
         runningCalories = 0.0
@@ -206,6 +209,7 @@ class TrackingService : LifecycleService() {
         isPaused = false
         isAutoPaused = false
         lastSpeedMs = 0f
+        lastFixAtMs = 0L
         goalDistanceKm = null
         goalDurationMs = null
         goalReached = false
@@ -389,6 +393,7 @@ class TrackingService : LifecycleService() {
 
         if (point.accuracy <= 25f) {
             lastSpeedMs = point.speed
+            lastFixAtMs = System.currentTimeMillis()
             if (point.speed < 0.5f && !isAutoPaused && !isPaused) {
                 isAutoPaused = true
                 pausedAtMs = System.currentTimeMillis()
@@ -509,6 +514,9 @@ class TrackingService : LifecycleService() {
             now - startTimeMs - totalPausedMs
         }).coerceAtLeast(0L)
         val dist = TrackStats.totalDistanceKm(pointBuffer)
+        if (lastFixAtMs != 0L && now - lastFixAtMs > GPS_STALE_MS) {
+            lastSpeedMs = 0f
+        }
         val liveSpeedKmh = lastSpeedMs * 3.6
         val workout = intervalWorkout
         setState(TrackingState.Active(
