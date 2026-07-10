@@ -429,7 +429,7 @@ private fun IdleContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp)
-                        .padding(top = 12.dp, bottom = 20.dp),
+                        .padding(top = 16.dp, bottom = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     RydeLogo(

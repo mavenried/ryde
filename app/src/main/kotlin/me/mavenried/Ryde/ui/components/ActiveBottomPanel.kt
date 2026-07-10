@@ -74,7 +74,7 @@ fun ActiveBottomPanel(
         modifier = modifier
             .fillMaxWidth()
             .animateContentSize()
-            .then(if (isExpanded) Modifier.fillMaxHeight() else Modifier),
+            .then(if (isExpanded) Modifier.fillMaxHeight(0.95f) else Modifier),
         shape = RoundedCornerShape(topStart = cornerRadius, topEnd = cornerRadius),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shadowElevation = 8.dp
@@ -116,7 +116,22 @@ fun ActiveBottomPanel(
 
             Crossfade(targetState = isExpanded, label = "panelContent") { expanded ->
                 if (expanded) {
-                    Column(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectVerticalDragGestures(
+                                    onDragStart = { dragAccumPx = 0f },
+                                    onVerticalDrag = { change, dragAmount ->
+                                        change.consume()
+                                        dragAccumPx += dragAmount
+                                        if (dragAccumPx > dragThresholdPx) {
+                                            isExpanded = false
+                                        }
+                                    }
+                                )
+                            }
+                    ) {
                         Column(
                             modifier = Modifier
                                 .weight(1f)
