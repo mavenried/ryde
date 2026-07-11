@@ -19,6 +19,8 @@ import me.mavenried.Ryde.domain.repository.RouteRepository
 import me.mavenried.Ryde.domain.util.TrackStats
 import me.mavenried.Ryde.util.FileLogger
 import me.mavenried.Ryde.util.ReverseGeocoder
+import me.mavenried.Ryde.util.TtsEngineFactory
+import me.mavenried.Ryde.util.TtsVoices
 import me.mavenried.Ryde.util.UserPrefs
 import me.mavenried.Ryde.service.HeartRateManager
 import me.mavenried.Ryde.widget.RydeWidget
@@ -115,13 +117,19 @@ class TrackingService : LifecycleService() {
                 result.locations.forEach { onNewLocation(it) }
             }
         }
-        tts = TextToSpeech(this) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                tts?.language = Locale.US
-                tts?.setSpeechRate(0.95f)
-                ttsReady = true
-            }
+        TtsEngineFactory.create(this) { engine ->
+            tts = engine
+            configureTts()
+            ttsReady = true
         }
+    }
+
+    private fun configureTts() {
+        val engine = tts ?: return
+        engine.language = Locale.US
+        engine.setSpeechRate(0.95f)
+        val voice = TtsVoices.preferred(engine, UserPrefs.getTtsVoiceName(this))
+        if (voice != null) engine.voice = voice
     }
 
     override fun onDestroy() {
@@ -457,7 +465,28 @@ class TrackingService : LifecycleService() {
             val unit = if (isMetric) "kilometer" else "mile"
             "$lapNumber $unit at a pace of $paceMin ${if (paceSec == 0) "minutes" else "minutes and $paceSec seconds"} per $unit"
         }
-        tts?.speak(lapStr, TextToSpeech.QUEUE_FLUSH, null, "lap_$lapNumber")
+        val phrase = motivationalPhrases(currentActivityType).random()
+        tts?.speak("$lapStr. $phrase", TextToSpeech.QUEUE_FLUSH, null, "lap_$lapNumber")
+    }
+
+    private fun motivationalPhrases(activityType: ActivityType): List<String> {
+        val verb = when (activityType) {
+            ActivityType.CYCLING -> "riding"
+            ActivityType.RUNNING -> "running"
+            ActivityType.WALKING -> "walking"
+        }
+        return listOf(
+            "Great $verb.",
+            "You're doing great.",
+            "Keep it up.",
+            "Looking strong.",
+            "Nice pace, keep going.",
+            "You've got this.",
+            "Great effort so far.",
+            "Stay strong.",
+            "Awesome work.",
+            "Keep pushing."
+        )
     }
 
     private fun checkGoalByDistance(totalKm: Double) {

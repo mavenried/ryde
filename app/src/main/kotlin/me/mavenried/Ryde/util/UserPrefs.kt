@@ -19,6 +19,7 @@ object UserPrefs {
     private const val KEY_LIGHT_MODE_RIDING = "light_mode_riding"
     private const val KEY_HR_DEVICE_MAC = "hr_device_mac"
     private const val KEY_HR_DEVICE_NAME = "hr_device_name"
+    private const val KEY_TTS_VOICE_NAME = "tts_voice_name"
 
     private val _themeFlow = MutableStateFlow("system")
     val themeFlow: StateFlow<String> = _themeFlow.asStateFlow()
@@ -131,6 +132,14 @@ object UserPrefs {
             .putString(KEY_HR_DEVICE_MAC, mac)
             .putString(KEY_HR_DEVICE_NAME, name)
             .apply()
+
+    fun getTtsVoiceName(context: Context): String? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_TTS_VOICE_NAME, null)
+
+    fun setTtsVoiceName(context: Context, voiceName: String?) =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_TTS_VOICE_NAME, voiceName).apply()
 
     fun kgToLbs(kg: Double) = kg * 2.20462
     fun lbsToKg(lbs: Double) = lbs / 2.20462

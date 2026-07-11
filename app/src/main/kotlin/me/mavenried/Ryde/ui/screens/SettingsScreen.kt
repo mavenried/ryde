@@ -1,11 +1,15 @@
 package me.mavenried.Ryde.ui.screens
 
 import android.annotation.SuppressLint
+import android.speech.tts.TextToSpeech
+import android.speech.tts.Voice
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -16,11 +20,13 @@ import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.RecordVoiceOver
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
@@ -36,6 +42,8 @@ import me.mavenried.Ryde.service.HeartRateManager
 import me.mavenried.Ryde.service.WeeklySummaryWorker
 import me.mavenried.Ryde.util.FileLogger
 import me.mavenried.Ryde.util.PermissionHelper
+import me.mavenried.Ryde.util.TtsEngineFactory
+import me.mavenried.Ryde.util.TtsVoices
 import me.mavenried.Ryde.util.UpdateManager
 import me.mavenried.Ryde.util.UserPrefs
 import java.text.SimpleDateFormat
@@ -61,6 +69,29 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
     val updateInfo by UpdateManager.updateInfo.collectAsState()
     val scope = rememberCoroutineScope()
     var hrDeviceName by remember { mutableStateOf(UserPrefs.getHrDeviceName(context)) }
+
+    var ttsEngine by remember { mutableStateOf<TextToSpeech?>(null) }
+    var ttsVoices by remember { mutableStateOf<List<Voice>>(emptyList()) }
+    var selectedVoiceName by remember { mutableStateOf(UserPrefs.getTtsVoiceName(context)) }
+    var debugSpeechText by remember { mutableStateOf("This is a test of the Ryde voice announcements.") }
+
+    DisposableEffect(Unit) {
+        TtsEngineFactory.create(context) { engine ->
+            engine.language = Locale.US
+            engine.setSpeechRate(0.95f)
+            ttsVoices = TtsVoices.available(engine)
+            val voice = TtsVoices.preferred(engine, selectedVoiceName)
+            if (voice != null) {
+                engine.voice = voice
+                selectedVoiceName = voice.name
+            }
+            ttsEngine = engine
+        }
+        onDispose {
+            ttsEngine?.stop()
+            ttsEngine?.shutdown()
+        }
+    }
 
     val backupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
@@ -371,6 +402,55 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
+            Text("Voice Announcements", style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary)
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Voice", style = MaterialTheme.typography.bodyMedium)
+                if (ttsVoices.isEmpty()) {
+                    Text(
+                        "Loading available voices…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        ttsVoices.forEach { voice ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        selectedVoiceName = voice.name
+                                        UserPrefs.setTtsVoiceName(context, voice.name)
+                                        ttsEngine?.voice = voice
+                                        ttsEngine?.speak(
+                                            "This is how announcements will sound.",
+                                            TextToSpeech.QUEUE_FLUSH, null, "voice_preview"
+                                        )
+                                    }
+                                    .padding(horizontal = 4.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = voice.name == selectedVoiceName,
+                                    onClick = null
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(TtsVoices.label(voice), style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                }
+                Text(
+                    "Used for lap splits, goal, and interval workout announcements during a ride.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
             Text("Heart Rate Monitor", style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary)
 
@@ -499,6 +579,39 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                 Icon(Icons.Rounded.Description, contentDescription = null)
                 Spacer(modifier = Modifier.width(12.dp))
                 Text("View Application Logs")
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            Text("Debug", style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary)
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Speak text", style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(
+                    value = debugSpeechText,
+                    onValueChange = { debugSpeechText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Text") },
+                    minLines = 2
+                )
+                OutlinedButton(
+                    onClick = {
+                        ttsEngine?.speak(debugSpeechText, TextToSpeech.QUEUE_FLUSH, null, "debug_speak")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(16.dp),
+                    enabled = ttsEngine != null && debugSpeechText.isNotBlank()
+                ) {
+                    Icon(Icons.Rounded.RecordVoiceOver, contentDescription = null)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Speak")
+                }
+                Text(
+                    "Uses the selected voice above to test what an announcement would sound like.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
             }
         }
     }
