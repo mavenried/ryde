@@ -16,14 +16,28 @@ android {
     namespace = "me.mavenried.Ryde"
     compileSdk = 35
 
-    val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+    // Total commit count on the current branch — monotonic across both CI and
+    // local builds, unlike GITHUB_RUN_NUMBER (which is 0 locally and caused
+    // Play Protect/PackageManager to reject local installs as "downgrades"
+    // over a previously-installed CI build).
+    val gitVersionCode = try {
+        val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+            .directory(rootProject.rootDir)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().readText().trim()
+        process.waitFor()
+        output.toIntOrNull() ?: 1
+    } catch (e: Exception) {
+        1
+    }
 
     defaultConfig {
         applicationId = "me.mavenried.Ryde"
         minSdk = 26
         targetSdk = 35
-        versionCode = runNumber ?: 1
-        versionName = if (runNumber != null) "1.0.$runNumber" else "1.0"
+        versionCode = gitVersionCode
+        versionName = "1.0.$gitVersionCode"
         manifestPlaceholders["MAPS_API_KEY"] = localProps.getProperty("MAPS_API_KEY", "")
     }
 

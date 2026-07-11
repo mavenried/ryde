@@ -12,6 +12,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version
+        id: version
+        run: echo "code=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-java@v4
         with:
@@ -50,8 +56,8 @@ jobs:
       - name: Create prerelease
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: v1.0.${{ github.run_number }}
+          tag_name: v1.0.${{ steps.version.outputs.code }}
+          name: v1.0.${{ steps.version.outputs.code }}
           prerelease: true
           body: |
             ${{ github.event.head_commit.message }}
