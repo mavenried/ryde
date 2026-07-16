@@ -27,7 +27,7 @@ object FitExporter {
             true
         }.getOrDefault(false)
 
-    private fun buildFit(route: Route, points: List<LocationPoint>): ByteArray {
+    fun buildFit(route: Route, points: List<LocationPoint>): ByteArray {
         val data = ByteArrayOutputStream()
         val t0 = (route.startTime / 1000L) - FIT_EPOCH
         val t1 = (route.endTime / 1000L) - FIT_EPOCH
@@ -36,15 +36,17 @@ object FitExporter {
 
         // Local 0 → Global 0: File ID
         data.def(0, 0,
-            f(4, 1, ENUM),   // type
+            f(0, 1, ENUM),   // type
             f(1, 2, UINT16), // manufacturer
             f(2, 2, UINT16), // product
-            f(253, 4, UINT32), // time_created
+            f(3, 4, UINT32), // serial_number
+            f(4, 4, UINT32), // time_created
         )
         data.dat(0) {
-            u8(4)          // type = activity
-            u16(0xFF)      // manufacturer = development
-            u16(0)         // product
+            u8(4)                          // type = activity
+            u16(0xFF)                      // manufacturer = development
+            u16(0)                         // product
+            u32(route.id.hashCode())       // serial_number — unique per route
             u32(t0.toInt())
         }
 

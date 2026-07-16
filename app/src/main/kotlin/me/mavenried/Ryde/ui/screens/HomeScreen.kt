@@ -4,6 +4,7 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
@@ -25,6 +26,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -142,9 +144,25 @@ fun HomeScreen(
         )
     }
 
+    val batteryOptLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { vm.startTracking(selectedActivity, goalDistanceKm, goalDurationMs, intervalWorkout) }
+
+    fun startTrackingOrRequestBatteryExemption() {
+        if (!PermissionHelper.isIgnoringBatteryOptimizations(context)) {
+            runCatching {
+                batteryOptLauncher.launch(PermissionHelper.batteryOptimizationIntent(context))
+            }.onFailure {
+                vm.startTracking(selectedActivity, goalDistanceKm, goalDurationMs, intervalWorkout)
+            }
+        } else {
+            vm.startTracking(selectedActivity, goalDistanceKm, goalDurationMs, intervalWorkout)
+        }
+    }
+
     val bgLocationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { vm.startTracking(selectedActivity) }
+    ) { startTrackingOrRequestBatteryExemption() }
 
     val locationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -155,7 +173,7 @@ fun HomeScreen(
             ) {
                 bgLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             } else {
-                vm.startTracking(selectedActivity)
+                startTrackingOrRequestBatteryExemption()
             }
         }
     }
@@ -172,7 +190,7 @@ fun HomeScreen(
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
                     !PermissionHelper.hasBackgroundLocationPermission(context) ->
                 bgLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-            else -> vm.startTracking(selectedActivity, goalDistanceKm, goalDurationMs, intervalWorkout)
+            else -> startTrackingOrRequestBatteryExemption()
         }
     }
 
@@ -549,6 +567,7 @@ private fun ActiveContent(
 ) {
     var recenterTrigger by remember { mutableStateOf(0) }
     var panelHeightPx by remember { mutableStateOf(0) }
+    var isPanelExpanded by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -631,19 +650,23 @@ private fun ActiveContent(
             )
         }
         val panelHeightDp = with(density) { panelHeightPx.toDp() }
+        val expandedControlsAlpha by animateFloatAsState(
+            if (isPanelExpanded) 0f else 1f, label = "expandedControlsAlpha"
+        )
 
         // Overlay toggle button
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(bottom = panelHeightDp + 72.dp, end = 16.dp)
+                .alpha(expandedControlsAlpha)
                 .background(
                     if (hasOverlay) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.90f)
                     else MaterialTheme.colorScheme.surfaceContainerHigh,
                     RoundedCornerShape(12.dp)
                 )
         ) {
-            IconButton(onClick = onShowOverlaySelector) {
+            IconButton(onClick = onShowOverlaySelector, enabled = !isPanelExpanded) {
                 Icon(
                     Icons.Rounded.Layers,
                     contentDescription = "Overlay",
@@ -666,10 +689,11 @@ private fun ActiveContent(
 
         // Destination search button
         SmallFloatingActionButton(
-            onClick = { showDestSearch = true },
+            onClick = { if (!isPanelExpanded) showDestSearch = true },
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(bottom = panelHeightDp + 16.dp, start = 16.dp),
+                .padding(bottom = panelHeightDp + 16.dp, start = 16.dp)
+                .alpha(expandedControlsAlpha),
             containerColor = if (destination != null)
                 MaterialTheme.colorScheme.primaryContainer
             else MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -746,6 +770,8 @@ private fun ActiveContent(
             state = state,
             onPauseResume = onPauseResume,
             onStop = onStop,
+            expanded = isPanelExpanded,
+            onExpandedChange = { isPanelExpanded = it },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .onSizeChanged { panelHeightPx = it.height }

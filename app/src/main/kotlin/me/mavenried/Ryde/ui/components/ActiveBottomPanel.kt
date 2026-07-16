@@ -4,9 +4,14 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.provider.Settings
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -42,14 +47,22 @@ import me.mavenried.Ryde.ui.theme.LocalIsMetric
 import me.mavenried.Ryde.util.PermissionHelper
 import me.mavenried.Ryde.util.UserPrefs
 
+private val PanelSizeSpec = tween<androidx.compose.ui.unit.IntSize>(
+    durationMillis = 300, easing = FastOutSlowInEasing
+)
+private val PanelDpSpec = tween<androidx.compose.ui.unit.Dp>(
+    durationMillis = 300, easing = FastOutSlowInEasing
+)
+
 @Composable
 fun ActiveBottomPanel(
     state: TrackingState.Active,
     onPauseResume: () -> Unit,
     onStop: () -> Unit,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isExpanded by remember { mutableStateOf(false) }
     var dragAccumPx by remember { mutableStateOf(0f) }
     val density = LocalDensity.current
     val dragThresholdPx = with(density) { 48.dp.toPx() }
@@ -68,21 +81,18 @@ fun ActiveBottomPanel(
         if (pace > 0) UserPrefs.formatPace(pace, isMetric) else "--:--"
     }
     val movementLabel = if (state.activityType == ActivityType.CYCLING) "SPEED" else "PACE"
-    val cornerRadius by animateDpAsState(if (isExpanded) 0.dp else 24.dp, label = "panelCornerRadius")
+    val cornerRadius by animateDpAsState(
+        if (expanded) 0.dp else 24.dp, animationSpec = PanelDpSpec, label = "panelCornerRadius"
+    )
 
     Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .animateContentSize()
-            .then(if (isExpanded) Modifier.fillMaxHeight(0.95f) else Modifier),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(topStart = cornerRadius, topEnd = cornerRadius),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shadowElevation = 8.dp
     ) {
         Column(
-            modifier = Modifier
-                .navigationBarsPadding()
-                .let { if (isExpanded) it.fillMaxSize() else it }
+            modifier = Modifier.navigationBarsPadding()
         ) {
             Box(
                 modifier = Modifier
@@ -93,10 +103,10 @@ fun ActiveBottomPanel(
                             onVerticalDrag = { change, dragAmount ->
                                 change.consume()
                                 dragAccumPx += dragAmount
-                                if (!isExpanded && dragAccumPx < -dragThresholdPx) {
-                                    isExpanded = true
-                                } else if (isExpanded && dragAccumPx > dragThresholdPx) {
-                                    isExpanded = false
+                                if (!expanded && dragAccumPx < -dragThresholdPx) {
+                                    onExpandedChange(true)
+                                } else if (expanded && dragAccumPx > dragThresholdPx) {
+                                    onExpandedChange(false)
                                 }
                             }
                         )
@@ -114,11 +124,19 @@ fun ActiveBottomPanel(
                 )
             }
 
-            Crossfade(targetState = isExpanded, label = "panelContent") { expanded ->
-                if (expanded) {
+            AnimatedContent(
+                targetState = expanded,
+                transitionSpec = {
+                    (fadeIn(tween(220, delayMillis = 80)) togetherWith fadeOut(tween(120)))
+                        .using(SizeTransform(clip = false) { _, _ -> PanelSizeSpec })
+                },
+                label = "panelContent"
+            ) { isExpandedState ->
+                if (isExpandedState) {
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.95f)
                             .pointerInput(Unit) {
                                 detectVerticalDragGestures(
                                     onDragStart = { dragAccumPx = 0f },
@@ -126,7 +144,7 @@ fun ActiveBottomPanel(
                                         change.consume()
                                         dragAccumPx += dragAmount
                                         if (dragAccumPx > dragThresholdPx) {
-                                            isExpanded = false
+                                            onExpandedChange(false)
                                         }
                                     }
                                 )

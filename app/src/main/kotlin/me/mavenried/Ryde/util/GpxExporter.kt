@@ -18,18 +18,19 @@ object GpxExporter {
     fun exportToUri(context: Context, uri: Uri, route: Route, points: List<LocationPoint>): Boolean {
         return try {
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                OutputStreamWriter(outputStream).use { writer ->
+                OutputStreamWriter(outputStream, Charsets.UTF_8).use { writer ->
+                    val name = escapeXml(route.name)
                     writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
                     writer.write("<gpx version=\"1.1\" creator=\"Ryde\"\n")
                     writer.write("     xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
-                    
+
                     writer.write("  <metadata>\n")
-                    writer.write("    <name>${route.name}</name>\n")
+                    writer.write("    <name>$name</name>\n")
                     writer.write("    <time>${isoFormat.format(Date(route.startTime))}</time>\n")
                     writer.write("  </metadata>\n")
-                    
+
                     writer.write("  <trk>\n")
-                    writer.write("    <name>${route.name}</name>\n")
+                    writer.write("    <name>$name</name>\n")
                     writer.write("    <type>${route.activityType.name}</type>\n")
                     writer.write("    <trkseg>\n")
                     
@@ -51,4 +52,11 @@ object GpxExporter {
             false
         }
     }
+
+    private fun escapeXml(text: String): String = text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("'", "&apos;")
 }

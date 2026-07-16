@@ -5,6 +5,7 @@ import android.content.Intent
 import android.location.Location
 import android.os.Binder
 import android.os.IBinder
+import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -69,6 +70,7 @@ class TrackingService : LifecycleService() {
     private lateinit var fusedClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
     private lateinit var repository: RouteRepository
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private val _state = MutableStateFlow<TrackingState>(TrackingState.Idle)
     val state: StateFlow<TrackingState> = _state.asStateFlow()
@@ -136,7 +138,26 @@ class TrackingService : LifecycleService() {
         tts?.stop()
         tts?.shutdown()
         tts = null
+        releaseWakeLock()
         super.onDestroy()
+    }
+
+    /** Keeps the CPU awake while actively recording so GPS fixes and the timer keep firing
+     *  with the screen off, instead of relying solely on the foreground-service exemption
+     *  (which some OEM battery managers don't fully honor). */
+    private fun acquireWakeLock() {
+        if (!UserPrefs.isWakeLockEnabled(this, currentActivityType)) return
+        if (wakeLock?.isHeld == true) return
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Ryde:TrackingWakeLock").apply {
+            setReferenceCounted(false)
+            acquire(4 * 60 * 60 * 1000L) // 4h safety timeout in case release() is ever missed
+        }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -202,6 +223,7 @@ class TrackingService : LifecycleService() {
             }
         }
 
+        acquireWakeLock()
         requestLocationUpdates()
         startTimer()
         pushState()
@@ -238,6 +260,7 @@ class TrackingService : LifecycleService() {
                 FileLogger.logError(this@TrackingService, "Failed to load existing points on resume", e)
             }
         }
+        acquireWakeLock()
         requestLocationUpdates()
         startTimer()
         pushState()
@@ -253,6 +276,7 @@ class TrackingService : LifecycleService() {
         pausedAtMs = System.currentTimeMillis()
         fusedClient.removeLocationUpdates(locationCallback)
         stopTimer()
+        releaseWakeLock()
         pushState()
     }
 
@@ -261,6 +285,7 @@ class TrackingService : LifecycleService() {
         totalPausedMs += System.currentTimeMillis() - pausedAtMs
         isPaused = false
         isAutoPaused = false
+        acquireWakeLock()
         requestLocationUpdates()
         startTimer()
         pushState()
@@ -270,6 +295,7 @@ class TrackingService : LifecycleService() {
         HeartRateManager.disconnect()
         fusedClient.removeLocationUpdates(locationCallback)
         stopTimer()
+        releaseWakeLock()
         val routeId = currentRouteId
         lifecycleScope.launch { repository.deleteRoute(routeId) }
         setState(TrackingState.Idle)
@@ -282,6 +308,7 @@ class TrackingService : LifecycleService() {
         HeartRateManager.disconnect()
         fusedClient.removeLocationUpdates(locationCallback)
         stopTimer()
+        releaseWakeLock()
         val endTime = System.currentTimeMillis()
         val durationMs = (endTime - startTimeMs - totalPausedMs).coerceAtLeast(0L)
         val distanceKm = TrackStats.totalDistanceKm(pointBuffer)

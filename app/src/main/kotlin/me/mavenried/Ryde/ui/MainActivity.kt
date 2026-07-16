@@ -58,10 +58,13 @@ class MainActivity : ComponentActivity() {
             val theme by UserPrefs.themeFlow.collectAsState()
             val isMetric by UserPrefs.metricsFlow.collectAsState()
             val trackingState by TrackingService.globalState.collectAsState()
-            val isRiding = trackingState is TrackingState.Active
+            val activeState = trackingState as? TrackingState.Active
+            val isRiding = activeState != null
 
-            DisposableEffect(isRiding) {
-                if (isRiding && UserPrefs.isKeepScreenOn(this@MainActivity)) {
+            DisposableEffect(isRiding, activeState?.activityType) {
+                val keepOn = activeState != null &&
+                    UserPrefs.isKeepScreenOn(this@MainActivity, activeState.activityType)
+                if (keepOn) {
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 } else {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

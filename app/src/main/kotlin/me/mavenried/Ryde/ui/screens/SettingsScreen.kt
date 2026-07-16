@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.BluetoothSearching
 import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.BatteryAlert
 import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Description
@@ -37,6 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.mavenried.Ryde.data.db.AppDatabase
+import me.mavenried.Ryde.domain.model.ActivityType
 import me.mavenried.Ryde.service.ActivityRecognitionReceiver
 import me.mavenried.Ryde.service.HeartRateManager
 import me.mavenried.Ryde.service.WeeklySummaryWorker
@@ -59,7 +61,15 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
     val bikeWeightKg = remember { mutableStateOf(UserPrefs.getBikeWeightKg(context)) }
     var theme by remember { mutableStateOf(UserPrefs.getTheme(context)) }
     var isMetric by remember { mutableStateOf(UserPrefs.isMetric(context)) }
-    var keepScreenOn by remember { mutableStateOf(UserPrefs.isKeepScreenOn(context)) }
+    var keepScreenOnCycling by remember {
+        mutableStateOf(UserPrefs.isKeepScreenOn(context, ActivityType.CYCLING))
+    }
+    var keepScreenOnRunning by remember {
+        mutableStateOf(UserPrefs.isKeepScreenOn(context, ActivityType.RUNNING))
+    }
+    var keepScreenOnWalking by remember {
+        mutableStateOf(UserPrefs.isKeepScreenOn(context, ActivityType.WALKING))
+    }
     var lightModeRiding by remember { mutableStateOf(UserPrefs.isLightModeRiding(context)) }
     var weeklySummaryEnabled by remember { mutableStateOf(UserPrefs.isWeeklyNotificationEnabled(context)) }
     var autoStartEnabled by remember { mutableStateOf(UserPrefs.isAutoStartEnabled(context)) }
@@ -69,6 +79,13 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
     val updateInfo by UpdateManager.updateInfo.collectAsState()
     val scope = rememberCoroutineScope()
     var hrDeviceName by remember { mutableStateOf(UserPrefs.getHrDeviceName(context)) }
+    var batteryOptExempt by remember { mutableStateOf(PermissionHelper.isIgnoringBatteryOptimizations(context)) }
+    val batteryOptLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { batteryOptExempt = PermissionHelper.isIgnoringBatteryOptimizations(context) }
+    var wakeLockCycling by remember { mutableStateOf(UserPrefs.isWakeLockEnabled(context, ActivityType.CYCLING)) }
+    var wakeLockRunning by remember { mutableStateOf(UserPrefs.isWakeLockEnabled(context, ActivityType.RUNNING)) }
+    var wakeLockWalking by remember { mutableStateOf(UserPrefs.isWakeLockEnabled(context, ActivityType.WALKING)) }
 
     var ttsEngine by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsVoices by remember { mutableStateOf<List<Voice>>(emptyList()) }
@@ -357,12 +374,41 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
                 }
             }
 
-            NotificationToggleRow(
-                title = "Keep screen on while riding",
-                subtitle = "Prevents the screen from sleeping during an active session",
-                checked = keepScreenOn,
-                onCheckedChange = { keepScreenOn = it; UserPrefs.setKeepScreenOn(context, it) }
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Keep screen on while riding", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Prevents the screen from sleeping during an active session, per activity type.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
+                NotificationToggleRow(
+                    title = "Cycling",
+                    subtitle = "",
+                    checked = keepScreenOnCycling,
+                    onCheckedChange = {
+                        keepScreenOnCycling = it
+                        UserPrefs.setKeepScreenOn(context, ActivityType.CYCLING, it)
+                    }
+                )
+                NotificationToggleRow(
+                    title = "Running",
+                    subtitle = "",
+                    checked = keepScreenOnRunning,
+                    onCheckedChange = {
+                        keepScreenOnRunning = it
+                        UserPrefs.setKeepScreenOn(context, ActivityType.RUNNING, it)
+                    }
+                )
+                NotificationToggleRow(
+                    title = "Walking",
+                    subtitle = "",
+                    checked = keepScreenOnWalking,
+                    onCheckedChange = {
+                        keepScreenOnWalking = it
+                        UserPrefs.setKeepScreenOn(context, ActivityType.WALKING, it)
+                    }
+                )
+            }
 
             NotificationToggleRow(
                 title = "Light mode while riding",
@@ -550,6 +596,69 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
             Text("Diagnostics", style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary)
 
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        runCatching {
+                            batteryOptLauncher.launch(PermissionHelper.batteryOptimizationIntent(context))
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(16.dp),
+                    enabled = !batteryOptExempt
+                ) {
+                    Icon(Icons.Rounded.BatteryAlert, contentDescription = null)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        if (batteryOptExempt) "Battery optimization disabled for Ryde"
+                        else "Disable battery optimization"
+                    )
+                }
+                Text(
+                    "Some phones aggressively kill background apps to save power, which can stop " +
+                        "GPS tracking mid-ride. Disabling this for Ryde helps prevent that.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Keep device awake while recording", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Holds a wake lock during the activity so GPS keeps sampling with the screen " +
+                        "off. Uses more battery — turn off per activity if you don't need it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
+                NotificationToggleRow(
+                    title = "Cycling",
+                    subtitle = "",
+                    checked = wakeLockCycling,
+                    onCheckedChange = {
+                        wakeLockCycling = it
+                        UserPrefs.setWakeLockEnabled(context, ActivityType.CYCLING, it)
+                    }
+                )
+                NotificationToggleRow(
+                    title = "Running",
+                    subtitle = "",
+                    checked = wakeLockRunning,
+                    onCheckedChange = {
+                        wakeLockRunning = it
+                        UserPrefs.setWakeLockEnabled(context, ActivityType.RUNNING, it)
+                    }
+                )
+                NotificationToggleRow(
+                    title = "Walking",
+                    subtitle = "",
+                    checked = wakeLockWalking,
+                    onCheckedChange = {
+                        wakeLockWalking = it
+                        UserPrefs.setWakeLockEnabled(context, ActivityType.WALKING, it)
+                    }
+                )
+            }
+
             OutlinedButton(
                 onClick = { UpdateManager.checkAsync() },
                 modifier = Modifier.fillMaxWidth(),
@@ -729,11 +838,13 @@ private fun NotificationToggleRow(
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
             Text(title, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
-            )
+            if (subtitle.isNotEmpty()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
+            }
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }

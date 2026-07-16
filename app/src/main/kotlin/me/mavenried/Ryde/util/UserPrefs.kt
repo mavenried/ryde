@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import me.mavenried.Ryde.domain.model.ActivityType
 
 object UserPrefs {
     private const val PREFS_NAME = "user_prefs"
@@ -20,6 +21,8 @@ object UserPrefs {
     private const val KEY_HR_DEVICE_MAC = "hr_device_mac"
     private const val KEY_HR_DEVICE_NAME = "hr_device_name"
     private const val KEY_TTS_VOICE_NAME = "tts_voice_name"
+    private const val KEY_WAKE_LOCK_PREFIX = "wake_lock_"
+    private const val KEY_KEEP_SCREEN_ON_PREFIX = "keep_screen_on_"
 
     private val _themeFlow = MutableStateFlow("system")
     val themeFlow: StateFlow<String> = _themeFlow.asStateFlow()
@@ -103,13 +106,17 @@ object UserPrefs {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_AUTO_START, enabled).apply()
 
-    fun isKeepScreenOn(context: Context): Boolean =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_KEEP_SCREEN_ON, true)
+    /** Per-activity-type; falls back to the old single "keep_screen_on" value for anyone
+     *  upgrading who had already set that, so it doesn't silently flip on for them. */
+    fun isKeepScreenOn(context: Context, activityType: ActivityType): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val legacyDefault = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true)
+        return prefs.getBoolean(KEY_KEEP_SCREEN_ON_PREFIX + activityType.name, legacyDefault)
+    }
 
-    fun setKeepScreenOn(context: Context, enabled: Boolean) =
+    fun setKeepScreenOn(context: Context, activityType: ActivityType, enabled: Boolean) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_KEEP_SCREEN_ON, enabled).apply()
+            .edit().putBoolean(KEY_KEEP_SCREEN_ON_PREFIX + activityType.name, enabled).apply()
 
     fun isLightModeRiding(context: Context): Boolean =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -140,6 +147,15 @@ object UserPrefs {
     fun setTtsVoiceName(context: Context, voiceName: String?) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putString(KEY_TTS_VOICE_NAME, voiceName).apply()
+
+    /** Whether TrackingService should hold a CPU wake lock while recording this activity type. */
+    fun isWakeLockEnabled(context: Context, activityType: ActivityType): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_WAKE_LOCK_PREFIX + activityType.name, true)
+
+    fun setWakeLockEnabled(context: Context, activityType: ActivityType, enabled: Boolean) =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_WAKE_LOCK_PREFIX + activityType.name, enabled).apply()
 
     fun kgToLbs(kg: Double) = kg * 2.20462
     fun lbsToKg(lbs: Double) = lbs / 2.20462

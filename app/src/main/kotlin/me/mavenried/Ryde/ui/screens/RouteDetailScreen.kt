@@ -1,5 +1,7 @@
 package me.mavenried.Ryde.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Share
@@ -60,6 +63,7 @@ fun RouteDetailScreen(
     var showTagDialog by remember { mutableStateOf(false) }
     var showShareMenu by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf("") }
+    var openStravaAfterExport by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/gpx+xml")
@@ -78,6 +82,8 @@ fun RouteDetailScreen(
     val fitExportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
+        val forStrava = openStravaAfterExport
+        openStravaAfterExport = false
         uri?.let {
             val r = route ?: return@let
             val p = points
@@ -86,6 +92,16 @@ fun RouteDetailScreen(
                 Toast.makeText(context,
                     if (ok) "FIT exported" else "FIT export failed",
                     Toast.LENGTH_SHORT).show()
+                if (ok && forStrava) {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://www.strava.com/upload/select"))
+                    )
+                    Toast.makeText(
+                        context,
+                        "Choose the file you just saved to upload it",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }
@@ -232,6 +248,16 @@ fun RouteDetailScreen(
                                             android.content.Intent.createChooser(intent, "Share ride")
                                         )
                                     }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Send to Strava") },
+                                leadingIcon = { Icon(Icons.Rounded.CloudUpload, contentDescription = null) },
+                                onClick = {
+                                    showShareMenu = false
+                                    openStravaAfterExport = true
+                                    val name = route?.name?.replace(" ", "_") ?: "route"
+                                    fitExportLauncher.launch("Ryde_$name.fit")
                                 }
                             )
                             DropdownMenuItem(
